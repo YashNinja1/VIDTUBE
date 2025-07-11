@@ -261,6 +261,102 @@ const updateCoverImage = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, user, "Cover image updated successfully"));
 });
 
+const getUserChannelProfile = asyncHandler(async (req, res) => {
+  const {username} = req.params;
+  if (!username) {
+    return res.status(400).json({message: "Username is required"});
+  }
+  const channel = await User.aggregate([
+    {
+      $match: {username: username.toLowerCase()},
+    },
+    {
+      $lookup: {
+        from: "subscriptions",
+        localField: "_id",
+        foreignField: "channel",
+        as: "subscribers",
+      },
+    },
+    {
+      $lookup: {
+        from: "subscriptions",
+        localField: "_id",
+        foreignField: "subscriber",
+        as: "subscriberedTo",
+      },
+    },
+    {
+      $addFields: {
+        subscriberCount: {$size: "$subscribers"},
+        subscribedToCount: {$size: "$subscriberedTo"},
+        isSubscribed: {
+          $cond: {
+            if: {$in: [req.user?._id, "$subscribers.subscriber"]},
+            then: true,
+            else: false,
+          },
+        },
+      },
+    },
+    {
+      $project: {
+        fullname: 1,
+        username: 1,
+        avatar: 1,
+        coverImage: 1,
+        subscriberCount: 1,
+        subscribedToCount: 1,
+        isSubscribed: 1,
+      },
+    },
+  ]);
+  if (!channel || channel.length === 0) {
+    return res.status(404).json({message: "Channel not found"});
+  }
+
+  return res
+    .status(200)
+    .json(
+      new ApiResponse(200, channel[0], "Channel profile retrieved successfully")
+    );
+});
+
+const getWatchHistory = asyncHandler(async (req, res) => {
+  const user = await User.aggregate([
+    {
+      $match: {
+        id: new mongoose.Types.ObjectId(req.user._id),
+      },
+    },
+    {
+      $lookup: {
+        from: "videos",
+        localField: "watchHistory",
+        foreignField: "_id",
+        as: "watchHistory",
+      },
+    },
+    {
+      $project: {
+        watchHistory: {
+          $map: {
+            input: "$watchHistory",
+            as: "video",
+            in: {
+              _id: "$$video._id",
+              title: "$$video.title",
+              thumbnail: "$$video.thumbnail",
+              duration: "$$video.duration",
+              views: "$$video.views",
+            },
+          },
+        },
+      },
+    },
+  ]);
+});
+
 export {
   registerUser,
   loginUser,
@@ -271,4 +367,6 @@ export {
   updateAccountDetails,
   updateAvatar,
   updateCoverImage,
+  getUserChannelProfile,
+  getWatchHistory,
 };
